@@ -178,9 +178,9 @@ test("网页资源齐全且全是相对路径，页面有醒目的离线声明",
   assert.ok(html.includes('name="viewport"'));
   assert.ok(html.includes('href="./styles.css"'));
   assert.ok(html.includes('src="./app.js"'));
-  assert.ok(!/href="https?:/i.test(html), "不许外链样式或字体");
-  assert.ok(!/src="https?:/i.test(html), "不许外链脚本");
-  assert.ok(!/<a\s/i.test(html), "演示域名不许渲染成可点链接");
+  assert.ok(!/<link[^>]+href="https?:/i.test(html), '不许外链样式或字体');
+  assert.ok(!/src="https?:/i.test(html), '不许外链脚本');
+  assert.deepEqual([...html.matchAll(/<a\s+[^>]*href="([^"]+)"/gi)].map(m=>m[1]), ['https://github.com/weizhiqiang1005/alpha-intel-demo#快速开始'], '仅允许手动打开源码链接，不得将示例证据变成链接');
   assert.ok(!/<link[^>]+fonts\./i.test(html), "不许外部字体");
 
   for (const relative of ["styles.css", "app.js", "favicon.svg", "lib/pipeline.js", "lib/fixtures.js", "lib/decision-schema.js", ".nojekyll"]) {
@@ -196,6 +196,7 @@ test("docs 内没有第三方资源与网络调用，证据 URL 只在虚构域�
   const allow = [
     /^https:\/\/x\.com\/fictitious_[a-z_]+\/status\/fictitious-\d{4}$/,
     /^https:\/\/[a-z]+\.demo\.invalid\/[a-z0-9/_.-]*$/i,
+    /^https:\/\/github\.com\/weizhiqiang1005\/alpha-intel-demo#快速开始$/u,
     // SVG 命名空间是标识符，不是网络请求
     /^http:\/\/www\.w3\.org\/2000\/svg$/,
   ];

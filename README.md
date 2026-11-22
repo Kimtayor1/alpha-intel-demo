@@ -1,155 +1,85 @@
-# ALPHA 情报流水线 · 离线演示（alpha-intel-demo）
+# ALPHA 情报系统
 
-一个可以独立公开的静态小项目：把 ALPHA 情报流水线的**判定与投递逻辑**摊开给人看。
-事件全是虚构的，审核是本地规则 mock，推送只写进页面里的模拟发件箱。**全程不联网。**
+**把你关心的 X 动态，变成可核查、可推送的情报。** ALPHA 监控指定账号发布的帖子和新增关注，把原始事件交给你选的模型审核，再用你定义的准则复核。新情报可投递到 Telegram；相同事件和已经入队的项目事实不会重复推送。
 
-> 离线模拟，非实时数据，不发真实通知。
+[在线交互预览](https://weizhiqiang1005.github.io/alpha-intel-demo/) · [下载源码 ZIP](https://github.com/weizhiqiang1005/alpha-intel-demo/archive/refs/heads/main.zip)
 
-## 它做什么
+| | 自部署版 | 网页预览 |
+|---|---|---|
+| 数据 | 你设置的 X 监控账号 | 五组虚构案例 |
+| 判定 | 你的模型 + 你的合格准则 | 用示例展示审核、校验和去重 |
+| 投递 | 默认关闭，可开启 Telegram | 只演示发件箱，不发通知 |
 
-一条 pipeline，CLI 与网页共用同一份代码（`docs/lib/pipeline.js`）：
+## 快速开始
 
-1. **采集与归一化**：把一条事件压成「项目键 + 事实指纹 + 证据」。
-2. **本地规则审核（mock）**：按事件类型分支给出决策草案，确定性规则，**不是 AI 模型**。
-3. **去重与变更判定**：同项目同事实 → 抑制；同项目新事实 → `MATERIAL_UPDATE`。
-4. **严格校验**：调用生产原版验证器 `validateAlphaDecision(card, { requireCurrentFields: true })`，
-   37 个字段一个不少，字段未知、缺 X 来源、change_type 不匹配都会抛错并阻断投递。
-5. **推送决策（模拟）**：`PUSH` 只写进内存里的模拟发件箱，`delivered` 永远是 `false`。
-
-## 它不做什么
-
-- 不抓取任何平台、不调任何 API、不订阅消息、不监控联网。
-- 不发通知、不接 webhook、不连钱包、不读环境变量。
-- 不加载 CDN、外部字体或追踪脚本；页面只用相对路径的本仓库文件，并带 CSP（`default-src 'none'` 起步）。
-- 不包含任何生产列表 ID、真实账号/推文 ID、生产域名与服务器路径、聊天 ID、API Key、Cookie 或 token。
-- 证据里的域名只有两类：`.invalid` 保留域（浏览器永不解析），以及 `x.com` 下带 `fictitious_` 前缀的虚构句柄；不含真实账号、真实项目或生产域名。
-
-## 目录
-
-```
-alpha-intel-demo/
-├── docs/                     ← GitHub Pages 根目录
-│   ├── index.html            页面入口（相对路径引用资源，带 CSP）
-│   ├── favicon.svg           本地图标，不请求任何外站
-│   ├── app.js                页面交互：场景切换 / 单步 / 重放
-│   ├── styles.css            样式（系统字体，无外链）
-│   ├── .nojekyll             让 Pages 原样发布，不过 Jekyll
-│   ├── lib/
-│   │   ├── pipeline.js       流程本体（CLI 与浏览器共用，无 Node API）
-│   │   ├── fixtures.js       纯合成事件与证据
-│   │   └── decision-schema.js  生产原版验证器，逐字复制
-│   └── reference/
-│       └── alpha-v0.9.7.schema.json  生产策略 schema，逐字复制，仅作对照阅读
-├── scripts/
-│   ├── demo.mjs              CLI：跑场景、打印步骤与模拟发件箱
-│   └── preview.mjs           本地静态预览，只绑 127.0.0.1，只服务 docs/
-├── test/demo.test.mjs        自动化测试（node:test，无依赖）
-├── package.json
-└── .gitignore
-```
-
-## 本地运行
-
-需要 Node 22+（用到的特性：ESM、`structuredClone`、`node:test`）。
+需要 **Node.js 22.13+**，用内置 SQLite，不需要安装 npm 依赖。准备可访问用户查询、时间线、关注列表的 [X API](https://docs.x.com/x-api) Bearer Token。远程模型需要你自己的 Key；本机回环地址的 OpenAI 兼容服务可不填 Key。对照自己的 API 权限、额度和计费再启动。
 
 ```bash
-node scripts/demo.mjs                       # 全部场景
-node scripts/demo.mjs --scenario S2-duplicate
-node scripts/demo.mjs --json                # 机器可读
-node scripts/demo.mjs --list                # 场景清单
-node --test "test/**/*.test.mjs"            # 测试
+# 从仓库目录运行；或下载 ZIP 解压后进入目录
+mkdir -p config/local
+cp .env.example .env
+cp config/runtime.example.json config/local/runtime.json
+cp config/policy.example.json config/local/policy.json
 ```
 
-`package.json` 里也备了同样的入口：`npm run demo` / `npm test` / `npm run preview`。
-
-如果本机 PATH 里没有 Node，用绝对路径调同一个可执行文件即可，例如：
+PowerShell 对应命令：
 
 ```powershell
-& "C:\path\to\node.exe" scripts/demo.mjs
+New-Item -ItemType Directory -Force config/local | Out-Null
+Copy-Item .env.example .env
+Copy-Item config/runtime.example.json config/local/runtime.json
+Copy-Item config/policy.example.json config/local/policy.json
 ```
 
-**不要**在仓库里放任何 `.env`、账号池、真实数据或导出文件；`.gitignore` 已挡住常见形态。
-
-## 在浏览器里看
-
-页面是纯静态站点，但**别用 `file://` 直接双击打开** `docs/index.html`：`app.js` 是 ES 模块，
-多数浏览器在 `file://` 下会因为来源限制把模块脚本拦掉，页面会一片空白。
-用下面两种方式之一：
+1. 在 `.env` 填 `ALPHA_X_BEARER_TOKEN`、`ALPHA_MODEL_API_KEY`，先保持 `ALPHA_ENABLE_LIVE_DELIVERY=0`。
+2. 在 `config/local/runtime.json` 的 `watch` 填自己的监控名单。`username` 不带 `@`，`posts` / `following` 分别开启帖子与关注。只有你核实是官方信息源的账号才标 `official: true`。在 `model` 填地址、模型名和接口类型：`chat_completions` 或 `responses`。例如 `baseUrl` 以 `/v1` 结尾，不要再填 `/chat/completions` 或 `/responses`。
+3. 在 `config/local/policy.json` 编辑判定准则。先执行 `check`，再 `once` 建基线。基线只记当前帖子游标和关注名单，不回推旧动态。以后有新动态才进入分析。
 
 ```bash
-node scripts/preview.mjs          # 本地：http://127.0.0.1:4173/
-node scripts/preview.mjs 8080     # 换端口（只收 1-65535 的十进制数字）
+npm run check     # 仅验证配置，不联网
+npm run once      # 运行一轮采集、分析、投递检查
+npm start         # 定时运行，Ctrl+C 停止
+npm run status    # 查看本地 SQLite 汇总
+npm run decisions # 查看最近 10 条本地判定与证据；不要作为公开日志分享
 ```
 
-或者发布到 GitHub Pages 后访问（见下一节）。
+没有 npm 时，等价入口：`node --env-file-if-exists=.env server/cli.mjs check`，将 `check` 换成 `once`、`start`、`status` 或 `decisions`。`status` / `decisions` 前先停止同一数据库的运行进程。长期运行时，让服务的工作目录指向仓库；不要让两个进程共用同一个数据库。异常退出留下 `.lock` 时，确认没有实例在用该数据库，再手动移除对应的 `.lock`。
 
-预览服务只监听 `127.0.0.1`、只服务 `docs/` 目录、只接受 `GET`/`HEAD`（其它方法 405），
-只发白名单静态资产（`.env`、备份、隐藏文件与未知扩展名一律 404），
-并按**物理路径**判界（指向 `docs/` 之外的软链接或 Windows junction 直接 403）；
-所有响应带 `cache-control: no-store` 与 `x-content-type-options: nosniff`，
-前台运行，Ctrl+C 结束，不会常驻。
+## 自定义「什么算合格 ALPHA」
 
-页面上的操作：
+帖子（`post`）和关注变化（`follow`）有各自的规则。修改配置后重启，不用改代码。顶层 `instructions` 可写你的业务偏好，例如「只看有明确开放时间的活动」「没有实质变化的公告不算新线索」。文字指令交给模型判断；下表字段还会由程序硬性校验。
 
-- **场景切换**：5 个场景（新情报 / 重复线索 / 独立关注信号 / 证据不足 / 线索被拒）。
-- **单步**：一次推进一个阶段，看每一步的判定与拦截点；顶部统计只算已经展示的步骤，不提前给全场结果。
-- **本场景全跑**：直接看到卡片与模拟发件箱。
-- **重放本场景**：清空状态重新跑，便于观察去重是"会话内"生效的。
-- **全部场景对照**：五场跑在同一会话里，能看出跨场景的重复也会被抑制。
+| 字段 | 作用 |
+|---|---|
+| `allowQualify` | 这一类事件是否允许判为合格 |
+| `allowPush` | 合格后是否允许入推送队列 |
+| `minEvidence` | 模型至少要引用多少条不同 URL 的已采集证据 |
+| `minIndependentSources` | 上述引用至少覆盖多少个不同来源 |
+| `requireOfficialEvidence` | 是否必须引用至少一条被你标为官方的证据 |
+| `minConfidence` | 最低模型评分，范围 `0` 至 `1`；不是事实真伪保证 |
 
-## 用 GitHub Pages 发布（本文档不创建仓库、不上传）
+例如，让推文至少引用两条证据、来自两个不同账号：把 `post.minEvidence` 和 `post.minIndependentSources` 都改成 `2`。普通单条帖子往往只有一个来源，会被标为待核实。当前版本可使用 X 附带的被引用或被回复帖子作为原始证据；一条帖子里的多个外链不会凭空变成多个来源，也不会被自动访问。两个账号不等同于事实已独立证实；请按自己的核查标准使用。新增关注不等于背书，示例规则把关注推送关闭。
 
-前提：把 `alpha-intel-demo/` 整个目录**作为独立仓库的根**，`docs/` 才会落在仓库根下。
+模型只能引用这次事件已经提供的证据，不能自行添加 ID 或标成官方。只有模型判合格、已引用证据满足硬门槛，才可能出队；相同项目和事实键入队一次。事实键由模型生成，不保证识别所有语义改写。
 
-1. 仓库 Settings → Pages → Source 选 **Deploy from a branch**，分支选 `main`，
-   目录选 **`/docs`**，保存。
-2. 等 Pages 构建完成，访问 `https://<用户名>.github.io/<仓库名>/`。
-3. `docs/.nojekyll` 保证原样发布，不需要 Jekyll 构建。
+## 开启 Telegram 投递
 
-不推荐把这个 demo 塞进另一个仓库的子目录再照上面的办法发布：
-`Deploy from a branch` 的 `/docs` 只能指仓库根下的目录，子目录不会被当成站点根，页面会 404。
-确实要放子目录，就得改用 GitHub Actions 自己发构建产物，那是另一条路子。
+先用自己的测试群确认结果。按 [Telegram Bot API](https://core.telegram.org/bots/api#sendmessage) 准备机器人和目标聊天，让机器人具备发消息权限。填 `.env` 的 `ALPHA_TELEGRAM_BOT_TOKEN` 和 `ALPHA_TELEGRAM_CHAT_ID`。同时把 `.env` 的 `ALPHA_ENABLE_LIVE_DELIVERY` 设成 `1`，并把运行配置 `delivery.mode` 改为 `telegram`，再重启。
 
-首次发布前请确认公开的代码范围，再扫描实际提交，确保没有生产配置和个人数据。
+**关闭投递时，符合规则的条目可以留在本地待发队列。** 开启后会处理之前待发的条目。如果不要补发，请在 `runtime.json` 更换 `databaseFile`（例如 `live.sqlite`）重新建基线。遇到 Telegram `429` 按其重试时间延后，且限制重试次数。如果服务超时、结果不明或发送中进程被终止，该条标为 `uncertain`，不自动重发。
 
-## 演示与生产的差异
+## 运行与数据边界
 
-| 维度 | 本演示 | 生产流水线 |
-| --- | --- | --- |
-| 数据来源 | 手写虚构事件 | 真实平台采集 + 人工/模型审核 |
-| 审核 | 按事件类型分支的本地规则 mock | 真实审核链路（模型 + 规则 + 人工兜底） |
-| 决策校验 | **同一份** `decision-schema.js`，strict 模式 | 同左 |
-| 去重 | 内存里的推送账本，跑完即弃 | 持久化账本 + 指纹库 |
-| 投递 | 模拟发件箱，`delivered=false` | 真实推送渠道 |
-| 联网 | 无 | 有 |
-| 证据链接 | `.invalid` 保留域 + `x.com/fictitious_*` 虚构 ID，纯文本展示 | 真实原始来源 |
+- 数据库默认在 `data/alpha.sqlite`，保存采集游标、事件、判定和发件箱。不要上传 `.env`、`config/local/`、`data/` 或数据库备份。公开仓库里只有空白模板与合成测试数据，不带私人名单、凭证或生产提示词。
+- `partial` 表示收到的分页不完整，本轮不更新对应游标。检查 X API 权限、额度以及 `x.maxPages`。第一次只取帖子首页建立基线，但关注比较需要完整列表；轮询不是实时流，也不能补回超出供应商范围的数据。
+- X 帖子和来源信息会发给你配置的模型，合格情报会发给你配置的群。选择可信的供应商；模型不会收到 X 或 Telegram 凭证。
+- `docs/` 是独立的无钥展示页，使用合成事件。保留了先前公开的只读校验示例，自部署版不会用它覆盖你的准则。
 
-**没有放宽的**：`docs/lib/decision-schema.js` 是生产文件的逐字复制（SHA-256 与原件一致），
-演示没有为"方便展示"修改任何一条校验规则，所以 `QUALIFIED_ALPHA` 的字段矩阵、
-`PUSH/NO_PUSH` 的 `change_type` 约束、证据里必须带原始 X 来源等要求都保持原样。
-
-## 测试覆盖
-
-`node --test "test/**/*.test.mjs"`，24 项，全部本地、不装依赖：
-
-- 流程汇总（单会话）：2 推送 / 2 抑制 / 1 待核实 / 1 拒绝 / 0 阻断。
-- 新情报走 `innovation` 路径；关注信号走 `notable_attention` 路径，各自只推一次。
-- 重复线索（同一事件换措辞）不会二次推送，命中历史推送 id。
-- 证据不足判 `UNRESOLVED`、`research_required=true`、不推送。
-- 线索被拒判 `REJECTED`、带拒绝原因、不推送。
-- 验证器没有被放宽：缺 X 来源 / 空证据 / 未知字段 / 错 `change_type` / 错 `policy_version` 一律抛错。
-- CLI 真跑（子进程）：`--json` 退出码 0，汇总与模块一致；错误场景名退出码 2。
-- 网页资源齐全、路径全是相对路径、无外链、无 `<a>` 可点链接、无网络 API。
-- 页面 CSP 八条指令齐全，favicon 是本地相对路径，除仓库内文件外零外部请求。
-- 合成数据无长数字串（真实 ID 形态）、无合约地址、无凭据字样、无本机路径。
-- 预览服务越界拦截（`..`、`%2e%2e`、反斜杠、空字节）与回环 200/403 实测。
-- 预览服务只接受 `GET`/`HEAD`（其它方法 405 + `Allow`），响应带 `no-store`/`nosniff`。
-- 预览服务只发白名单资产：临时写进 `docs/` 的 `.env`、`.bak`、`.md`、隐藏文件一律 404。
-- 预览服务按物理路径判界：`docs/` 外的 junction / 目录软链接一律 403（平台不支持时自动 skip）。
-- 端口只收严格十进制：`4173abc`、`0x10`、`1e3`、`+4173`、`0`、`65536` 全部拒绝。
-- 单步进度按已展示步骤计数，走向投递步骤之前推送数保持 0。
-- 页面脚本引用的 DOM id 都存在于 `index.html`。
+```bash
+npm run preview  # 本地展示：http://127.0.0.1:4173/
+npm test         # 自动化测试与回环 HTTP 联调；不会调用供应商或发真实通知
+```
 
 ## 许可
 
-本仓库用于成果展示，不附开源许可证。
+本仓库不附开源许可证。

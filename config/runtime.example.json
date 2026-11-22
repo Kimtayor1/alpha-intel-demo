@@ -1,0 +1,22 @@
+{
+  "policyFile": "policy.json",
+  "databaseFile": "alpha.sqlite",
+  "pollSeconds": 180,
+  "analysisBatchSize": 10,
+  "watch": [
+    { "username": "replace_me", "posts": true, "following": true, "official": false }
+  ],
+  "x": { "baseUrl": "https://api.x.com", "maxPages": 10, "timeoutMs": 15000 },
+  "model": {
+    "baseUrl": "https://api.openai.com/v1",
+    "name": "SET_YOUR_MODEL",
+    "apiStyle": "chat_completions",
+    "timeoutMs": 45000
+  },
+  "delivery": {
+    "mode": "disabled",
+    "baseUrl": "https://api.telegram.org",
+    "timeoutMs": 15000,
+    "batchSize": 10
+  }
+}

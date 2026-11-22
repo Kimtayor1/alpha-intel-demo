@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "instructions": "只依据事件自带的文字与证据判断。项目要能说清做什么、面向谁、为什么现在值得关注。互相转述的链接不算独立来源。信息不足时给 UNRESOLVED，不要猜，也不要为了凑数引用没把握的证据。",
+  "post": {
+    "minEvidence": 1,
+    "minIndependentSources": 1,
+    "requireOfficialEvidence": true,
+    "minConfidence": 0.6,
+    "allowQualify": true,
+    "allowPush": true
+  },
+  "follow": {
+    "minEvidence": 2,
+    "minIndependentSources": 1,
+    "requireOfficialEvidence": false,
+    "minConfidence": 0.5,
+    "allowQualify": true,
+    "allowPush": false
+  }
+}

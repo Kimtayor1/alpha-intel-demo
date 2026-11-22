@@ -64,6 +64,8 @@ html, body {
   font-size: .95rem;
 }
 
+.source-link { color: var(--accent); text-underline-offset: .2em; }
+
 .banner {
   margin: 0;
   padding: .7rem 1rem;

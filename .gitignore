@@ -19,7 +19,9 @@ desktop.ini
 .env.*
 *.env
 *.env.*
+!/.env.example
 *.local
+/config/local/
 
 # 备份与临时改动
 *.bak
