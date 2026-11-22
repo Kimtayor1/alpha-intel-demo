@@ -1,18 +1,26 @@
 # ALPHA 情报系统
 
-**把你关心的 X 动态，变成可核查、可推送的情报。** ALPHA 监控指定账号发布的帖子和新增关注，把原始事件交给你选的模型审核，再用你定义的准则复核。新情报可投递到 Telegram；相同事件和已经入队的项目事实不会重复推送。
+ALPHA 是一套可自部署的 X 情报系统。它轮询指定账号的推文和新增关注，调用你配置的模型整理线索，再按你的准则校验证据。符合规则的新情报可以发送到 Telegram。SQLite 保存采集进度、判定和发件箱，已入队的同一项目事实不会重复入队。
 
-[在线交互预览](https://weizhiqiang1005.github.io/alpha-intel-demo/) · [下载源码 ZIP](https://github.com/weizhiqiang1005/alpha-intel-demo/archive/refs/heads/main.zip)
+[下载源码 ZIP](https://github.com/weizhiqiang1005/alpha-intel-demo/archive/refs/heads/main.zip) · [部署指南](#快速开始) · [在线交互预览](https://weizhiqiang1005.github.io/alpha-intel-demo/)
 
-| | 自部署版 | 网页预览 |
-|---|---|---|
-| 数据 | 你设置的 X 监控账号 | 五组虚构案例 |
-| 判定 | 你的模型 + 你的合格准则 | 用示例展示审核、校验和去重 |
-| 投递 | 默认关闭，可开启 Telegram | 只演示发件箱，不发通知 |
+- **监控来源**。SocialData 搜索推文，ScraperTech 读取关注和列表成员，也可补充被关注账号的近期推文。无需 X 官方 API Key。
+- **判定准则**。推文和关注可以各设门槛，例如至少引用两个来源，或关注线索只记录、暂不推送。
+- **模型与通知**。支持 OpenAI 兼容的 Chat Completions 和 Responses。Telegram 真推送默认关闭。
+
+```text
+推文 / 新增关注 → 模型整理 → 按自定义准则复核 → SQLite 去重 → Telegram（可选）
+```
+
+在线预览用五组虚构事件演示审核、证据校验和去重。打开网页即可看效果。
 
 ## 快速开始
 
-需要 **Node.js 22.13+**。SQLite 随 Node 提供，无需安装 npm 依赖。采集服务用 [SocialData](https://docs.socialdata.tools/reference/get-search-results/) 和 [ScraperTech](https://scraper.tech/)，无需申请 X 官方 API Key。请按需开通对应接口并查看额度和计费。远程模型需自行配置 Key。回环地址上的 OpenAI 兼容模型可以留空。
+需要 **Node.js 22.13+**，SQLite 已内置。准备所启用功能对应的服务商 Key，并确认接口权限、余额和限额。远程模型需填自己的 Key。本机回环地址上的兼容模型可把模型 Key 留空。[SocialData 接口](https://docs.socialdata.tools/reference/get-search-results/) · [ScraperTech](https://scraper.tech/)
+
+### 1. 复制配置模板
+
+下载并解压后，在仓库目录运行以下命令。已有本地配置时直接编辑现有文件。
 
 ```bash
 # 从仓库目录运行；或下载 ZIP 解压后进入目录
@@ -31,9 +39,17 @@ Copy-Item config/runtime.example.json config/local/runtime.json
 Copy-Item config/policy.example.json config/local/policy.json
 ```
 
-1. 在 `.env` 填自己的 `SOCIALDATA_API_KEY`、`SCRAPERTECH_API_KEY` 和模型 Key。先保持 `ALPHA_ENABLE_LIVE_DELIVERY=0`。
-2. 在 `config/local/runtime.json` 配 `watch` 或 `lists`。账号的 `username` 不带 `@`，可填数字字符串 `restId`。`posts` / `following` 分别开启帖子与关注监控。只有经你核实的官方账号才标 `official: true`。在 `model` 填基础地址、模型名和 `chat_completions` 或 `responses`，基础地址不含接口末尾的 `/chat/completions` 或 `/responses`。
-3. 在 `config/local/policy.json` 编辑判定准则。先执行 `check`，再 `once` 建基线。基线只记当前帖子游标和关注名单，不回推旧动态。以后有新动态才进入分析。
+### 2. 填写自己的配置
+
+| 文件 | 改什么 |
+|---|---|
+| [`.env`](.env.example) | 填你启用的采集服务对应的 Key，以及远程模型的 `ALPHA_MODEL_API_KEY`。保持 `ALPHA_ENABLE_LIVE_DELIVERY=0`，先看判定结果。 |
+| [`config/local/runtime.json`](config/runtime.example.json) | 把 `replace_me` 换成你的监控账号，或填写 `lists`。把 `SET_YOUR_MODEL` 换成实际模型名。模型基础地址通常以 `/v1` 结尾，接口类型选 `chat_completions` 或 `responses`。 |
+| [`config/local/policy.json`](config/policy.example.json) | 先用示例准则跑一轮，或按需要修改推文和关注的证据门槛。 |
+
+### 3. 验证并启动
+
+`check` 只检查本地配置。`once` 会请求启用的采集服务，首次只记当前推文和关注名单。后续发现新动态才调用模型。
 
 ```bash
 npm run check     # 仅验证配置，不联网
@@ -43,7 +59,9 @@ npm run status    # 查看本地 SQLite 汇总
 npm run decisions # 查看最近 10 条本地判定与证据；不要作为公开日志分享
 ```
 
-没有 npm 时，等价入口：`node --env-file-if-exists=.env server/cli.mjs check`，将 `check` 换成 `once`、`start`、`status` 或 `decisions`。`status` / `decisions` 前先停止同一数据库的运行进程。长期运行时，让服务的工作目录指向仓库；不要让两个进程共用同一个数据库。异常退出留下 `.lock` 时，确认没有实例在用该数据库，再手动移除对应的 `.lock`。
+首次运行看到 `baselines` 增加、`ingested: 0` 属于正常情况。等有新动态后，用 `npm run decisions` 看标题、摘要、证据和判定理由。若样例准则要求官方证据，请在 `watch` 里把已核实的官方来源设为 `official: true`。
+
+没有 npm 时，用 `node --env-file-if-exists=.env server/cli.mjs <命令>`，将 `<命令>` 换成 `check`、`once`、`start`、`status` 或 `decisions`。运行 `status` 或 `decisions` 前，先停止正在使用同一数据库的实例。长期运行时，把服务工作目录设为仓库根目录。异常退出留下 `.lock` 时，先确认没有进程在用该库，再手动移除锁文件。
 
 ## 配置采集来源
 
