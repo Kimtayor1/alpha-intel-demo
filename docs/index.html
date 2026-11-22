@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ALPHA 情报流水线 · 离线演示</title>
+<meta name="description" content="ALPHA 情报流水线的纯合成离线演示：采集、审核、去重、严格校验、模拟推送。非实时数据，不发真实通知。">
+<meta name="robots" content="index,follow">
+<link rel="icon" type="image/svg+xml" href="./favicon.svg">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <p class="eyebrow">alpha-v0.9.7 · 生产验证器原版 · 纯合成数据</p>
+    <h1>ALPHA 情报流水线 <em>离线演示</em></h1>
+    <p class="lead">一条 pipeline，CLI 和这个页面共用。事件是虚构的，审核是本地规则，推送只写进页面里的模拟发件箱。</p>
+  </div>
+</header>
+
+<p class="banner" role="note">离线模拟，非实时数据，不发真实通知</p>
+
+<main class="wrap">
+  <section class="panel">
+    <div class="panel-head">
+      <h2>场景切换</h2>
+      <span class="hint">每一步都可单独推进，也可整场重放</span>
+    </div>
+    <nav id="scenario-tabs" class="tabs" aria-label="场景切换"></nav>
+    <div class="controls">
+      <button id="btn-step" type="button">单步 ▶</button>
+      <button id="btn-all" type="button">本场景全跑</button>
+      <button id="btn-replay" type="button">重放本场景</button>
+      <button id="btn-summary" type="button">全部场景对照</button>
+      <span id="progress" class="progress" aria-live="polite"></span>
+    </div>
+    <div id="summary" class="summary" hidden></div>
+  </section>
+
+  <div class="grid">
+    <section class="panel">
+      <div class="panel-head"><h2>源事件（虚构）</h2></div>
+      <div id="events" class="events"></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>流水线步骤</h2></div>
+      <div id="steps" class="steps"></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>情报卡</h2>
+      <span class="hint">字段按生产 alpha-v0.9.7 严格校验，不合格直接阻断</span>
+    </div>
+    <div id="cards" class="cards"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>模拟发件箱</h2>
+      <span class="hint">全部 delivered=false，没有连任何渠道</span>
+    </div>
+    <div id="outbox" class="outbox"></div>
+  </section>
+
+  <section class="panel notes">
+    <div class="panel-head"><h2>这套演示做了什么、没做什么</h2></div>
+    <ul>
+      <li><strong>做了什么</strong>：合成事件进流程 → 本地规则给出决策草案 → 去重判定 → 生产原版验证器按 strict 路径校验 → 得出 PUSH/NO_PUSH → 写进模拟发件箱。</li>
+      <li><strong>没做什么</strong>：不抓取任何平台、不调任何 API、不发通知、不监控联网、不读环境变量、不加载外部 CDN 或字体。</li>
+      <li><strong>审核不是 AI</strong>：页面里的"审核"由 <code>docs/lib/pipeline.js</code> 的规则分支产生，是确定性 mock，用来演示流程与拦截点。</li>
+      <li><strong>证据链接</strong>：演示用 <code>.invalid</code> 保留域名，浏览器永远不会解析；<code>x.com</code> 下的句柄与 ID 带 <code>fictitious</code> 字样，只为满足校验器的"原始 X 来源"字符串要求，页面按纯文本展示，不做可点链接。</li>
+    </ul>
+  </section>
+</main>
+
+<footer class="wrap">
+  <p>纯合成演示 · 无追踪 · 无第三方资源 · 不构成投资建议</p>
+</footer>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

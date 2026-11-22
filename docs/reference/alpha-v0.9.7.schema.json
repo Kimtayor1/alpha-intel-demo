@@ -1,0 +1,366 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "alpha-v0.9.7",
+  "title": "ALPHA qualification decision alpha-v0.9.7",
+  "description": "Apply only the operator-approved qualification policy. This schema defines output shape, not additional qualification semantics. Path matrix: three paths only. hard_opportunity is not a qualification path; opportunity_basis must be null.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "decision",
+    "qualified",
+    "project_key",
+    "project_name",
+    "opportunity_type",
+    "opportunity_delta",
+    "opportunity_status",
+    "user_action",
+    "why_now",
+    "executable",
+    "source_confidence",
+    "qualification_path",
+    "innovation_type",
+    "innovation_summary",
+    "differentiation",
+    "opportunity_basis",
+    "background_entity",
+    "background_relationship",
+    "background_strength",
+    "background_evidence",
+    "attention_actor",
+    "attention_type",
+    "attention_summary",
+    "attention_evidence",
+    "chain_candidates",
+    "contract_addresses",
+    "evidence",
+    "expires_at",
+    "reject_reason",
+    "research_required",
+    "delivery_action",
+    "change_type",
+    "matched_prior_push_ids",
+    "same_project",
+    "same_fact",
+    "material_difference",
+    "policy_version"
+  ],
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": [
+        "QUALIFIED_ALPHA",
+        "UNRESOLVED",
+        "HOLDING_RISK_ALERT",
+        "SECURITY_QUARANTINE",
+        "REJECTED"
+      ]
+    },
+    "qualified": {
+      "type": "boolean"
+    },
+    "project_key": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 300
+    },
+    "project_name": {
+      "description": "For qualified early leads, use the most specific observed name, handle, token symbol, contract, or policy-approved temporary identity; never invent one.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 200
+    },
+    "opportunity_type": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "claim",
+        "mint",
+        "waitlist",
+        "early_discovery",
+        "background_backed_early_discovery",
+        "attention_signal",
+        "arbitrage",
+        "qualification",
+        "developer_reward",
+        "early_trade",
+        "participation",
+        null
+      ]
+    },
+    "opportunity_delta": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 2000
+    },
+    "opportunity_status": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "OPEN",
+        "NOT_STARTED",
+        "ENDED",
+        "UNKNOWN",
+        null
+      ]
+    },
+    "user_action": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 2000
+    },
+    "why_now": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 2000
+    },
+    "executable": {
+      "type": "boolean"
+    },
+    "source_confidence": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "CONFIRMED",
+        "SUPPORTED",
+        "UNVERIFIED",
+        null
+      ]
+    },
+    "qualification_path": {
+      "description": "QUALIFIED_ALPHA selects exactly one of the three fixed paths; all non-qualified decisions use null.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "innovation",
+        "strong_background",
+        "notable_attention",
+        null
+      ]
+    },
+    "innovation_type": {
+      "description": "Non-null only for the innovation path; null for every other path and non-qualified decision.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "new_narrative",
+        "new_mechanism",
+        "new_technology",
+        "new_product_capability",
+        "new_economic_structure",
+        "new_opportunity_structure",
+        "new_protocol",
+        "new_model",
+        "new_chain",
+        "new_project",
+        null
+      ]
+    },
+    "innovation_summary": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 2000
+    },
+    "differentiation": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 2000
+    },
+    "opportunity_basis": {
+      "description": "Must be null. hard_opportunity is not a qualification path in alpha-v0.9.7.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 2000
+    },
+    "background_entity": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 300
+    },
+    "background_relationship": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "founded_by",
+        "launched_by",
+        "incubated_by",
+        "invested_by",
+        "officially_backed_by",
+        "core_team",
+        "advisor",
+        null
+      ]
+    },
+    "background_strength": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 2000
+    },
+    "background_evidence": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 3000
+    },
+    "attention_actor": {
+      "description": "Required only for notable_attention; null for every other path and non-qualified decision.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 300
+    },
+    "attention_type": {
+      "description": "Like and AMA are excluded because they cannot independently qualify under alpha-v0.9.7.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "follow",
+        "mention",
+        "quote",
+        "retweet",
+        "reply",
+        "official_interaction",
+        null
+      ]
+    },
+    "attention_summary": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 2000
+    },
+    "attention_evidence": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 3000
+    },
+    "chain_candidates": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "string",
+        "maxLength": 80
+      }
+    },
+    "contract_addresses": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "evidence": {
+      "description": "QUALIFIED_ALPHA requires 1-3 items formatted as Chinese summary | real URL; the first is the captured original X source.",
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 3000
+      }
+    },
+    "expires_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "reject_reason": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 2000
+    },
+    "research_required": {
+      "type": "boolean"
+    },
+    "delivery_action": {
+      "type": "string",
+      "enum": [
+        "PUSH",
+        "NO_PUSH"
+      ]
+    },
+    "change_type": {
+      "type": "string",
+      "enum": [
+        "NEW_PROJECT",
+        "NEW_FACT",
+        "NEW_OPPORTUNITY",
+        "NEW_ATTENTION_SIGNAL",
+        "MATERIAL_UPDATE",
+        "REOPENED_OR_UPDATED",
+        "DIFFERENT_PROJECT",
+        "SAME_PROJECT_SAME_FACT",
+        "SAME_EVENT_REPHRASED",
+        "NO_MATERIAL_CHANGE",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "matched_prior_push_ids": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "integer"
+      }
+    },
+    "same_project": {
+      "type": "boolean"
+    },
+    "same_fact": {
+      "type": "boolean"
+    },
+    "material_difference": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 2000
+    },
+    "policy_version": {
+      "type": "string",
+      "const": "alpha-v0.9.7"
+    }
+  }
+}
