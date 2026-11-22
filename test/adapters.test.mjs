@@ -4,13 +4,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 
-import { createXAdapter } from "../server/adapters/x.mjs";
+import { createSocialDataAdapter } from "../server/adapters/socialdata.mjs";
 import { createModelAdapter } from "../server/adapters/model.mjs";
 import { createTelegramAdapter } from "../server/adapters/telegram.mjs";
 import { AdapterError } from "../server/adapters/_shared.mjs";
 
-const X_BASE = "https://x.example.invalid";
-const X_TOKEN = "x-test-token-SECRET";
+const SOCIALDATA_KEY = "socialdata-test-fixture";
 const MODEL_BASE = "https://model.example.invalid/v1";
 const MODEL_KEY = "sk-test-SECRET";
 const TG_BASE = "https://tg.example.invalid";
@@ -37,271 +36,10 @@ function asUrl(call) {
   return new URL(call.url);
 }
 
-test("x: resolveUser 走 v2 username lookup，令牌只放 Authorization", async () => {
-  const { calls, fetchImpl } = fakeFetch(() => jsonResponse(200, {
-    data: { id: "42", username: "fictitious_alice", name: "Alice" },
-  }));
-  const adapter = createXAdapter({ bearerToken: X_TOKEN, baseUrl: X_BASE, timeoutMs: 1000 }, { fetchImpl });
-
-  assert.deepEqual(await adapter.resolveUser("@fictitious_alice"), {
-    id: "42",
-    username: "fictitious_alice",
-  });
-
-  assert.equal(calls.length, 1);
-  const url = asUrl(calls[0]);
-  assert.equal(url.origin, X_BASE);
-  assert.equal(url.pathname, "/2/users/by/username/fictitious_alice");
-  assert.equal(url.search, "");
-  assert.equal(calls[0].init.method, "GET");
-  assert.equal(calls[0].init.redirect, "error");
-  assert.equal(calls[0].init.headers.authorization, `Bearer ${X_TOKEN}`);
-  assert.ok(!calls[0].url.includes(X_TOKEN), "token must not appear in the URL");
-});
-
-test("x: readPosts 分页保留 since_id，pagination_token 续页", async () => {
-  const pages = [
-    {
-      data: [{ id: "101", text: "first", created_at: "2026-01-01T00:00:00.000Z", author_id: "7" }],
-      meta: { next_token: "page-2" },
-    },
-    {
-      data: [{ id: "102", text: "second", created_at: "2026-01-02T00:00:00.000Z" }],
-      meta: {},
-    },
-  ];
-  const { calls, fetchImpl } = fakeFetch((_url, _init, n) => jsonResponse(200, pages[n - 1]));
-  const adapter = createXAdapter({ bearerToken: X_TOKEN, baseUrl: X_BASE, timeoutMs: 1000 }, { fetchImpl });
-
-  const result = await adapter.readPosts("7", { sinceId: "100" });
-
-  assert.equal(result.complete, true);
-  assert.deepEqual(result.items, [
-    {
-      id: "101",
-      authorId: "7",
-      text: "first",
-      createdAt: "2026-01-01T00:00:00.000Z",
-      url: "https://x.com/i/web/status/101",
-    },
-    {
-      id: "102",
-      authorId: "7",
-      text: "second",
-      createdAt: "2026-01-02T00:00:00.000Z",
-      url: "https://x.com/i/web/status/102",
-    },
-  ]);
-
-  assert.equal(calls.length, 2);
-  const first = asUrl(calls[0]);
-  assert.equal(first.pathname, "/2/users/7/tweets");
-  assert.equal(first.searchParams.get("max_results"), "100");
-  assert.equal(first.searchParams.get("tweet.fields"), "created_at,author_id,entities,referenced_tweets");
-  assert.equal(first.searchParams.get('expansions'),'referenced_tweets.id');
-  assert.equal(first.searchParams.get("since_id"), "100");
-  assert.equal(first.searchParams.has("pagination_token"), false);
-
-  const second = asUrl(calls[1]);
-  assert.equal(second.searchParams.get("pagination_token"), "page-2");
-  assert.equal(second.searchParams.get('since_id'), '100');
-});
-
-test("x: 打到 maxPages 仍有 next_token 时 complete=false 并停止翻页", async () => {
-  const { calls, fetchImpl } = fakeFetch((_url, _init, n) => jsonResponse(200, {
-    data: [{ id: String(200 + n), text: `page ${n}` }],
-    meta: { next_token: `next-${n + 1}` },
-  }));
-  const adapter = createXAdapter({
-    bearerToken: X_TOKEN,
-    baseUrl: X_BASE,
-    maxPages: 2,
-    timeoutMs: 1000,
-  }, { fetchImpl });
-
-  const result = await adapter.readPosts("7");
-
-  assert.equal(result.complete, false);
-  assert.equal(result.items.length, 2);
-  assert.equal(calls.length, 2, "must not fetch a third page");
-});
-
-test("x: 第二页失败直接抛错，不伪装成空成功", async () => {
-  const { calls, fetchImpl } = fakeFetch((_url, _init, n) => (n === 1
-    ? jsonResponse(200, { data: [{ id: "1", text: "ok" }], meta: { next_token: "p2" } })
-    : jsonResponse(500, { title: "SECRET_BODY", detail: "SECRET_DETAIL" })));
-  const adapter = createXAdapter({ bearerToken: X_TOKEN, baseUrl: X_BASE, timeoutMs: 1000 }, { fetchImpl });
-
-  await assert.rejects(adapter.readPosts("7"), (err) => {
-    assert.ok(err instanceof AdapterError);
-    assert.equal(err.status, 500);
-    assert.ok(!err.message.includes("SECRET_BODY"));
-    assert.ok(!err.message.includes("SECRET_DETAIL"));
-    return true;
-  });
-  assert.equal(calls.length, 2);
-});
-
-test("x: 429 暴露 status 与 retryAfterSeconds，且不自动重试", async () => {
-  const { calls, fetchImpl } = fakeFetch(() => jsonResponse(429, { title: "rate limited" }, {
-    "retry-after": "7",
-    "x-rate-limit-reset": String(Math.floor(Date.now() / 1000) + 60),
-  }));
-  const adapter = createXAdapter({ bearerToken: X_TOKEN, baseUrl: X_BASE, timeoutMs: 1000 }, { fetchImpl });
-
-  await assert.rejects(adapter.readPosts("7"), (err) => {
-    assert.equal(err.status, 429);
-    assert.equal(err.retryAfterSeconds, 7);
-    return true;
-  });
-  assert.equal(calls.length, 1, "the adapter must not retry on its own");
-});
-
-test("x: readFollowing 映射 name/description 并跟随分页", async () => {
-  const pages = [
-    {
-      data: [{ id: "55", username: "bob", name: "Bob", description: "builder" }],
-      meta: { next_token: "p2" },
-    },
-    {
-      data: [{ id: "56", username: "carol" }],
-      meta: {},
-    },
-  ];
-  const { calls, fetchImpl } = fakeFetch((_url, _init, n) => jsonResponse(200, pages[n - 1]));
-  const adapter = createXAdapter({ bearerToken: X_TOKEN, baseUrl: X_BASE, timeoutMs: 1000 }, { fetchImpl });
-
-  const result = await adapter.readFollowing("7");
-
-  assert.equal(result.complete, true);
-  assert.deepEqual(result.items, [
-    { id: "55", username: "bob", name: "Bob", description: "builder" },
-    { id: "56", username: "carol" },
-  ]);
-  const first = asUrl(calls[0]);
-  assert.equal(first.pathname, "/2/users/7/following");
-  assert.equal(first.searchParams.get("user.fields"), "description,name");
-  assert.equal(asUrl(calls[1]).searchParams.get("pagination_token"), "p2");
-});
-
-test("x: following 到 maxPages 仍未完时 complete=false", async () => {
-  const { fetchImpl } = fakeFetch(() => jsonResponse(200, {
-    data: [{ id: "1", username: "a" }],
-    meta: { next_token: "more" },
-  }));
-  const adapter = createXAdapter({
-    bearerToken: X_TOKEN,
-    baseUrl: X_BASE,
-    maxPages: 1,
-    timeoutMs: 1000,
-  }, { fetchImpl });
-
-  const result = await adapter.readFollowing("7");
-  assert.equal(result.complete, false);
-  assert.equal(result.items.length, 1);
-});
-
-test("x: 畸形页面抛 invalid_response，不返回半截数据", async () => {
-  const { fetchImpl } = fakeFetch(() => jsonResponse(200, { data: [{ username: "no-id" }] }));
-  const adapter = createXAdapter({ bearerToken: X_TOKEN, baseUrl: X_BASE, timeoutMs: 1000 }, { fetchImpl });
-
-  await assert.rejects(adapter.readPosts("7"), (err) => {
-    assert.equal(err.code, "invalid_response");
-    return true;
-  });
-});
-
-test("x: 200 带 errors[] 视为部分失败，不伪装成空快照", async () => {
-  const { fetchImpl } = fakeFetch(() => jsonResponse(200, {
-    errors: [{ title: "partial failure", detail: "SECRET_DETAIL" }],
-    meta: {},
-  }));
-  const adapter = createXAdapter({ bearerToken: X_TOKEN, baseUrl: X_BASE, timeoutMs: 1000 }, { fetchImpl });
-
-  await assert.rejects(adapter.readPosts("7"), (err) => {
-    assert.equal(err.code, "partial_response");
-    assert.equal(err.status, 200);
-    assert.ok(!err.message.includes("SECRET_DETAIL"));
-    return true;
-  });
-});
-
-test("x: 配置只接受 HTTPS 或回环 HTTP，令牌不能带空白", () => {
-  assert.throws(
-    () => createXAdapter({ bearerToken: X_TOKEN, baseUrl: "http://example.com" }),
-    (err) => err.code === "invalid_config",
-  );
-  assert.throws(
-    () => createXAdapter({ bearerToken: X_TOKEN, baseUrl: "ftp://example.com" }),
-    (err) => err.code === "invalid_config",
-  );
-  assert.throws(
-    () => createXAdapter({ bearerToken: "bad token", baseUrl: X_BASE }),
-    (err) => err.code === "invalid_config",
-  );
-  assert.throws(
-    () => createXAdapter({ bearerToken: X_TOKEN, baseUrl: X_BASE, maxPages: 0 }),
-    (err) => err.code === "invalid_config",
-  );
-  assert.doesNotThrow(() => createXAdapter({
-    bearerToken: X_TOKEN,
-    baseUrl: "http://127.0.0.1:9",
-  }));
-});
-
-test("x: 默认 baseUrl 是官方 https://api.x.com", async () => {
-  const { calls, fetchImpl } = fakeFetch(() => jsonResponse(200, {
-    data: { id: "1", username: "a" },
-  }));
-  const adapter = createXAdapter({ bearerToken: X_TOKEN, timeoutMs: 1000 }, { fetchImpl });
-  await adapter.resolveUser("a");
-  assert.equal(asUrl(calls[0]).origin, "https://api.x.com");
-});
-
-test("x: 超时抛 timeout，错误不带 URL 或正文", async () => {
-  const fetchImpl = (_url, init) => new Promise((_resolve, reject) => {
-    init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
-  });
-  const adapter = createXAdapter({ bearerToken: X_TOKEN, baseUrl: X_BASE, timeoutMs: 5 }, { fetchImpl });
-
-  await assert.rejects(adapter.resolveUser("a"), (err) => {
-    assert.equal(err.code, "timeout");
-    assert.equal(err.status, null);
-    assert.ok(!err.message.includes(X_BASE));
-    assert.ok(!err.message.includes(X_TOKEN));
-    return true;
-  });
-});
-
-test("x: fetch 忽略 AbortSignal 时仍按时限失败", async () => {
-  const fetchImpl = () => new Promise(() => {});
-  const adapter = createXAdapter({ bearerToken: X_TOKEN, baseUrl: X_BASE, timeoutMs: 5 }, { fetchImpl });
-
-  await assert.rejects(adapter.resolveUser("a"), (err) => {
-    assert.equal(err.code, "timeout");
-    return true;
-  });
-});
-
-test("x: 网络错误统一成 network，不泄露底层 message", async () => {
-  const fetchImpl = async () => {
-    throw new TypeError(`fetch failed to ${X_BASE} with ${X_TOKEN}`);
-  };
-  const adapter = createXAdapter({ bearerToken: X_TOKEN, baseUrl: X_BASE, timeoutMs: 1000 }, { fetchImpl });
-
-  await assert.rejects(adapter.resolveUser("a"), (err) => {
-    assert.equal(err.code, "network");
-    assert.ok(!err.message.includes(X_BASE));
-    assert.ok(!err.message.includes(X_TOKEN));
-    assert.equal(err.cause, undefined);
-    return true;
-  });
-});
-
 test("安全：真实 fetch 下 302 不跟随，Authorization 不会转发到重定向目标", async () => {
   let forwarded = 0;
   const server = http.createServer((req, res) => {
-    if (req.url === "/2/users/by/username/moved") {
+    if (req.url === "/twitter/user/moved") {
       res.writeHead(302, {
         location: `http://127.0.0.1:${server.address().port}/redirect-target`,
       });
@@ -316,8 +54,8 @@ test("安全：真实 fetch 下 302 不跟随，Authorization 不会转发到重
 
   try {
     const port = server.address().port;
-    const adapter = createXAdapter({
-      bearerToken: X_TOKEN,
+    const adapter = createSocialDataAdapter({
+      apiKey: SOCIALDATA_KEY,
       baseUrl: `http://127.0.0.1:${port}`,
       timeoutMs: 2000,
     });

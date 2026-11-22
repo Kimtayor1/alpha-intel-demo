@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { buildPolicyPrompt, applyPolicy } from './policy.mjs';
 
-const accountId = (x) => typeof x === 'string' && /^\d{1,24}$/u.test(x);
+const accountId = (x) => typeof x === 'string' && /^[1-9]\d{0,29}$/u.test(x);
+const isHandle = (x) => typeof x === 'string' && /^[A-Za-z0-9_]{1,15}$/u.test(x);
 function maxId(items) { return items.reduce((a, b) => BigInt(a) < BigInt(b) ? b : a, '0'); }
 function compareId(a, b) { return BigInt(a) < BigInt(b) ? -1 : BigInt(a) === BigInt(b) ? 0 : 1; }
 const retryDelay = (err, fallback = 60) => Number.isFinite(err?.retryAfterSeconds) && err.retryAfterSeconds >= 0 ? Math.max(1, Math.min(86400,Math.ceil(err.retryAfterSeconds))) : fallback;
@@ -22,14 +23,26 @@ function postEvent(item, actor) {
   const context=(Array.isArray(item.referenced) ? item.referenced : []).filter(ref=>accountId(ref?.id) && typeof ref.text==='string').slice(0,4).map(ref=>`Referenced post ${ref.id}: ${ref.text.slice(0,850)}`);
   return { id:`post:${item.id}`, kind:'post', sourceAccount:actor.username, text:[item.text.slice(0,4300), ...context].join('\n').slice(0,8000), evidence:postEvidence(item,actor) };
 }
-function followEvent(item, actor, epoch) {
-  const fingerprint=createHash('sha256').update(`${actor.id}:${item.id}:${epoch}`).digest('hex').slice(0,24);
-  return { id:`follow:${fingerprint}`, kind:'follow', sourceAccount:actor.username, text:`X account @${actor.username} now follows @${item.username}. This is an observed change, not an endorsement.`, evidence:[{id:'source',url:`https://x.com/${actor.username}/following`,kind:'follow',origin:`x-user:${actor.id}`,official:false},{id:'target',url:`https://x.com/${item.username}`,kind:'profile',origin:`x-user:${actor.id}`,official:false}] };
+function followEvent(item, actor, epoch, timeline) {
+  const fingerprint = createHash('sha256').update(`${actor.id}:${item.id}:${epoch}`).digest('hex').slice(0,24);
+  const evidence = [
+    { id:'source', url:`https://x.com/${actor.username}/following`, kind:'follow', origin:`x-user:${actor.id}`, official:false },
+    { id:'target', url:`https://x.com/${item.username}`, kind:'profile', origin:`x-user:${actor.id}`, official:false },
+  ];
+  const text = [`X account @${actor.username} now follows @${item.username}. This is an observed change, not an endorsement.`];
+  for (const post of timeline) {
+    evidence.push({ id:`timeline-${evidence.length - 1}`, url:`https://x.com/${item.username}/status/${post.id}`, kind:'post', origin:`x-user:${item.id}`, official:false });
+    text.push(`Target timeline context ${post.id}: ${post.text.slice(0,800)}`);
+  }
+  return { id:`follow:${fingerprint}`, kind:'follow', sourceAccount:actor.username, text:text.join('\n'), evidence };
 }
 function resultById(items) { return new Map(items.map(item=>[item.id,item])); }
 function validateRead(result, type) {
   if (!result || !Array.isArray(result.items) || typeof result.complete!=='boolean') throw new Error('invalid source result');
-  const ok=result.items.every(item=>item && accountId(item.id) && (type==='post' ? typeof item.text==='string' : typeof item.username==='string' && /^[A-Za-z0-9_]{1,15}$/u.test(item.username)));
+  const ok = result.items.every(item => item && accountId(item.id) && (
+    type === 'post' ? typeof item.text === 'string' && accountId(item.authorId)
+      : isHandle(item.username) || (type === 'follow' && item.username === null)
+  ));
   if (!ok) throw new Error('invalid source item');
   return result;
 }
@@ -37,7 +50,7 @@ async function posts(actor, deps, counters) {
   const key=`posts:${actor.id}`;
   const previous=deps.store.getCursor(key);
   const sinceId=previous?.sinceId && previous.sinceId!=='0' ? previous.sinceId : null;
-  const result=validateRead(await deps.x.readPosts(actor.id,{sinceId,baseline:!previous}),'post');
+  const result = validateRead(await deps.socialdata.readPosts(actor.username, { sinceId, baseline: !previous }), 'post');
   if (!result.complete) { counters.partial++; return; }
   const items=[...resultById(result.items).values()].filter(item=>item.authorId===actor.id);
   const newer=items.filter(item=>!previous || compareId(item.id,previous.sinceId)>0);
@@ -50,13 +63,32 @@ async function posts(actor, deps, counters) {
 async function following(actor,deps,counters) {
   const key=`following:${actor.id}`;
   const previous=deps.store.getCursor(key);
-  const result=validateRead(await deps.x.readFollowing(actor.id),'follow');
+  const result = validateRead(await deps.scrapertech.readFollowing(actor.id), 'follow');
   if (!result.complete) { counters.partial++; return; }
-  const current=resultById(result.items);
-  const epoch=previous ? previous.epoch+1 : 0;
-  const prior=new Set(previous?.ids ?? []);
-  const events=previous ? [...current.values()].filter(item=>!prior.has(item.id)).map(item=>followEvent(item,actor,epoch)) : [];
-  counters.ingested+=deps.store.ingest(key,{ids:[...current.keys()],epoch},events);
+  const current = resultById(result.items);
+  const epoch = previous ? previous.epoch + 1 : 0;
+  const prior = new Set(previous?.ids ?? []);
+  const pending = new Set(previous?.pending ?? []);
+  const events = [];
+  const unresolved = [];
+  if (previous) for (const item of current.values()) {
+    if (prior.has(item.id) && !pending.has(item.id)) continue;
+    if (!item.username) { unresolved.push(item.id); continue; }
+    const timeline = [];
+    if (deps.timelineBudget > 0) {
+      deps.timelineBudget--;
+      try {
+        const sample = validateRead(await deps.scrapertech.readTimeline(item.id), 'post');
+        timeline.push(...sample.items.filter(post => post.authorId === item.id).slice(0, 3));
+      } catch (error) {
+        counters.sourceErrors++;
+        deps.note('SCRAPERTECH_TIMELINE', error);
+        if (error?.status === 429) deps.timelineBudget = 0;
+      }
+    }
+    events.push(followEvent(item, actor, epoch, timeline));
+  }
+  counters.ingested += deps.store.ingest(key, { ids:[...current.keys()], epoch, pending:unresolved }, events);
   if (!previous) counters.baselines++;
 }
 export function formatNotification(decision) {
@@ -64,12 +96,11 @@ export function formatNotification(decision) {
   const proof=decision.evidence.slice(0,4).map(item=>asHttps(item.url)).filter(Boolean).map(v=>v.slice(0,200));
   return ['ALPHA · 新情报',clean(decision.title,140),clean(decision.summary,1400),`项目：${clean(decision.projectKey,100)}`, ...proof].join('\n').slice(0,3500);
 }
-export function createRunner(config, { x, model, telegram, store }) {
-  const actorCache=new Map();
-  const deps={x,store};
+export function createRunner(config, { socialdata, scrapertech, model, telegram, store }) {
+  const actorCache = new Map();
   const policyPrompt=buildPolicyPrompt(config.policy);
   let active=false;
-  const limitedUntil={X:0,MODEL:0,TELEGRAM:0};
+  const limitedUntil = { SOCIALDATA:0, SCRAPERTECH:0, MODEL:0, TELEGRAM:0 };
   const delayFor=(kind,err)=>{if(err?.status===429) limitedUntil[kind]=Date.now()+retryDelay(err,config.pollSeconds)*1000;};
   async function runCycle({ collect = true } = {}) {
     if (active) throw new Error('A cycle is already in progress');
@@ -77,20 +108,57 @@ export function createRunner(config, { x, model, telegram, store }) {
     const counters={baselines:0,ingested:0,partial:0,sourceErrors:0,analyzed:0,analysisErrors:0,queued:0,suppressed:0,sent:0,deliveryErrors:0,problems:{}};
     const note=(label,err)=>{ const code=reason(err,label); counters.problems[code]=(counters.problems[code] ?? 0)+1; delayFor(label.split('_')[0],err); };
     try {
-      if (collect && Date.now()>=limitedUntil.X) for (const target of config.watch) {
-        let actor;
-        try {
-          actor=actorCache.get(target.username);
-          if (!actor) {
-            const selected=await x.resolveUser(target.username);
-            if (!selected || !accountId(selected.id) || typeof selected.username!=='string' || selected.username.toLowerCase()!==target.username) throw new Error('X user mismatch');
-            actor={id:selected.id,username:target.username,official:target.official}; actorCache.set(target.username,actor);
+      if (collect) {
+        const available = provider => Date.now() >= limitedUntil[provider];
+        const targets = new Map(config.watch.map(target => [target.username, { ...target }]));
+        const deps = { socialdata, scrapertech, store, note, timelineBudget:config.followTimelineLimit };
+        for (const list of config.lists) {
+          if (!available('SCRAPERTECH')) break;
+          try {
+            const result = validateRead(await scrapertech.readListMembers(list.listId), 'list');
+            if (!result.complete) { counters.partial++; continue; }
+            const next = new Map(targets);
+            for (const member of result.items) {
+              const username = member.username.toLowerCase();
+              const known = next.get(username);
+              if (known?.restId && known.restId !== member.id) throw new Error('Conflicting account IDs');
+              next.set(username, {
+                username, restId:member.id, official:known?.official ?? false,
+                posts:Boolean(known?.posts || list.posts), following:Boolean(known?.following || list.following),
+              });
+            }
+            if (next.size > config.maxAccounts) {
+              counters.partial++;
+              counters.problems.SCRAPERTECH_ACCOUNT_CAP = (counters.problems.SCRAPERTECH_ACCOUNT_CAP ?? 0) + 1;
+              continue;
+            }
+            for (const [name,target] of next) targets.set(name,target);
+          } catch (err) { counters.sourceErrors++; note('SCRAPERTECH_LIST',err); }
+        }
+        for (const target of targets.values()) {
+          if ((!target.posts || !available('SOCIALDATA')) && (!target.following || !available('SCRAPERTECH'))) continue;
+          let id = target.restId;
+          if (!id) {
+            const cached = actorCache.get(target.username);
+            if (cached && cached.expiresAt > Date.now()) id = cached.id;
           }
-        } catch (err) { counters.sourceErrors++; note('X_LOOKUP',err); if (err?.status===429) break; continue; }
-        let rateLimited=false;
-        if (target.posts) try { await posts(actor,deps,counters); } catch (err) { counters.sourceErrors++; note('X_POSTS',err); rateLimited=err?.status===429; }
-        if (!rateLimited && target.following) try { await following(actor,deps,counters); } catch (err) { counters.sourceErrors++; note('X_FOLLOWING',err); rateLimited=err?.status===429; }
-        if (rateLimited) break;
+          if (!id) {
+            if (!available('SOCIALDATA')) continue;
+            try {
+              const selected = await socialdata.resolveUser(target.username);
+              if (!accountId(selected?.id) || !isHandle(selected.username) || selected.username.toLowerCase() !== target.username) throw new Error('Account identity mismatch');
+              id = selected.id;
+              actorCache.set(target.username, { id, expiresAt: Date.now() + 3_600_000 });
+            } catch (err) { counters.sourceErrors++; note('SOCIALDATA_LOOKUP',err); continue; }
+          }
+          const actor = { id, username:target.username, official:target.official };
+          if (target.posts && available('SOCIALDATA')) {
+            try { await posts(actor,deps,counters); } catch (err) { counters.sourceErrors++; note('SOCIALDATA_POSTS',err); }
+          }
+          if (target.following && available('SCRAPERTECH')) {
+            try { await following(actor,deps,counters); } catch (err) { counters.sourceErrors++; note('SCRAPERTECH_FOLLOWING',err); }
+          }
+        }
       }
       for (const { event } of Date.now()>=limitedUntil.MODEL ? store.readyEvents(config.analysisBatchSize) : []) {
         try {

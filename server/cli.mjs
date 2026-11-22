@@ -3,7 +3,8 @@ import path from 'node:path';
 import { loadRuntime } from './config.mjs';
 import { openStore } from './store.mjs';
 import { createRunner } from './runner.mjs';
-import { createXAdapter } from './adapters/x.mjs';
+import { createSocialDataAdapter } from './adapters/socialdata.mjs';
+import { createScraperTechAdapter } from './adapters/scrapertech.mjs';
 import { createModelAdapter } from './adapters/model.mjs';
 import { createTelegramAdapter } from './adapters/telegram.mjs';
 
@@ -21,7 +22,10 @@ async function main() {
     console.error(e.message.startsWith('Invalid configuration:') || e.message.startsWith('Invalid policy:') ? e.message : 'Invalid ALPHA configuration.');
     process.exitCode=2; return;
   }
-  if (command==='check') { log({configuration:'ok',accounts:config.watch.length,delivery:config.delivery.mode}); return; }
+  if (command==='check') {
+    log({configuration:'ok',accounts:config.watch.length,lists:config.lists.length,delivery:config.delivery.mode});
+    return;
+  }
   const previousMask=process.umask(0o077);
   let store; let timer; let wake;
   let stopping=false;
@@ -32,7 +36,13 @@ async function main() {
     if (command==='status') { log({status:store.status()});return; }
     if (command==='decisions') { log({decisions:store.recentDecisions()});return; }
     process.once('SIGINT',stop); process.once('SIGTERM',stop);
-    const runner=createRunner(config,{store,x:createXAdapter(config.x),model:createModelAdapter(config.model),telegram:config.delivery.mode==='telegram' ? createTelegramAdapter(config.delivery) : null});
+    const runner=createRunner(config, {
+      store,
+      socialdata: config.socialdata.apiKey ? createSocialDataAdapter(config.socialdata) : null,
+      scrapertech: config.scrapertech.apiKey ? createScraperTechAdapter(config.scrapertech) : null,
+      model: createModelAdapter(config.model),
+      telegram: config.delivery.mode==='telegram' ? createTelegramAdapter(config.delivery) : null,
+    });
     do {
       const cycle=await runner.runCycle();
       log({cycle,status:store.status()});

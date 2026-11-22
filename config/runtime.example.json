@@ -4,9 +4,15 @@
   "pollSeconds": 180,
   "analysisBatchSize": 10,
   "watch": [
-    { "username": "replace_me", "posts": true, "following": true, "official": false }
+    { "username": "replace_me", "restId": null, "posts": true, "following": true, "official": false }
   ],
-  "x": { "baseUrl": "https://api.x.com", "maxPages": 10, "timeoutMs": 15000 },
+  "lists": [],
+  "collection": {
+    "socialdata": { "baseUrl": "https://api.socialdata.tools", "maxPages": 10, "timeoutMs": 15000 },
+    "scrapertech": { "baseUrl": "https://api.scraper.tech", "maxPages": 12, "timeoutMs": 20000 },
+    "maxAccounts": 150,
+    "followTimelineLimit": 0
+  },
   "model": {
     "baseUrl": "https://api.openai.com/v1",
     "name": "SET_YOUR_MODEL",

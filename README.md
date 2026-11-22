@@ -12,7 +12,7 @@
 
 ## 快速开始
 
-需要 **Node.js 22.13+**，用内置 SQLite，不需要安装 npm 依赖。准备可访问用户查询、时间线、关注列表的 [X API](https://docs.x.com/x-api) Bearer Token。远程模型需要你自己的 Key；本机回环地址的 OpenAI 兼容服务可不填 Key。对照自己的 API 权限、额度和计费再启动。
+需要 **Node.js 22.13+**。SQLite 随 Node 提供，无需安装 npm 依赖。采集服务用 [SocialData](https://docs.socialdata.tools/reference/get-search-results/) 和 [ScraperTech](https://scraper.tech/)，无需申请 X 官方 API Key。请按需开通对应接口并查看额度和计费。远程模型需自行配置 Key。回环地址上的 OpenAI 兼容模型可以留空。
 
 ```bash
 # 从仓库目录运行；或下载 ZIP 解压后进入目录
@@ -31,8 +31,8 @@ Copy-Item config/runtime.example.json config/local/runtime.json
 Copy-Item config/policy.example.json config/local/policy.json
 ```
 
-1. 在 `.env` 填 `ALPHA_X_BEARER_TOKEN`、`ALPHA_MODEL_API_KEY`，先保持 `ALPHA_ENABLE_LIVE_DELIVERY=0`。
-2. 在 `config/local/runtime.json` 的 `watch` 填自己的监控名单。`username` 不带 `@`，`posts` / `following` 分别开启帖子与关注。只有你核实是官方信息源的账号才标 `official: true`。在 `model` 填地址、模型名和接口类型：`chat_completions` 或 `responses`。例如 `baseUrl` 以 `/v1` 结尾，不要再填 `/chat/completions` 或 `/responses`。
+1. 在 `.env` 填自己的 `SOCIALDATA_API_KEY`、`SCRAPERTECH_API_KEY` 和模型 Key。先保持 `ALPHA_ENABLE_LIVE_DELIVERY=0`。
+2. 在 `config/local/runtime.json` 配 `watch` 或 `lists`。账号的 `username` 不带 `@`，可填数字字符串 `restId`。`posts` / `following` 分别开启帖子与关注监控。只有经你核实的官方账号才标 `official: true`。在 `model` 填基础地址、模型名和 `chat_completions` 或 `responses`，基础地址不含接口末尾的 `/chat/completions` 或 `/responses`。
 3. 在 `config/local/policy.json` 编辑判定准则。先执行 `check`，再 `once` 建基线。基线只记当前帖子游标和关注名单，不回推旧动态。以后有新动态才进入分析。
 
 ```bash
@@ -44,6 +44,27 @@ npm run decisions # 查看最近 10 条本地判定与证据；不要作为公�
 ```
 
 没有 npm 时，等价入口：`node --env-file-if-exists=.env server/cli.mjs check`，将 `check` 换成 `once`、`start`、`status` 或 `decisions`。`status` / `decisions` 前先停止同一数据库的运行进程。长期运行时，让服务的工作目录指向仓库；不要让两个进程共用同一个数据库。异常退出留下 `.lock` 时，确认没有实例在用该数据库，再手动移除对应的 `.lock`。
+
+## 配置采集来源
+
+| 功能 | 接口 | 所需 Key |
+|---|---|---|
+| 搜索账号发布的新推文 | SocialData 搜索 | `SOCIALDATA_API_KEY` |
+| 按用户名查询账号 ID | SocialData 用户资料 | `SOCIALDATA_API_KEY` |
+| 读取关注快照和 X 列表成员 | ScraperTech `following` / `list_members` | `SCRAPERTECH_API_KEY` |
+| 补充被关注账号的近期推文 | ScraperTech `timeline` | `SCRAPERTECH_API_KEY` |
+
+只监控推文且不订阅列表时，可以不填 ScraperTech Key。只看关注且目标都有 `restId`，或来自 ScraperTech 列表时，可以不填 SocialData Key。列表配置示例见下方，`12345` 仅是占位 ID。纯列表模式把 `watch` 改成 `[]`。同一账号在多个列表内只采集一次，账号是否算官方来源由 `watch` 明确设置。
+
+```json
+{
+  "lists": [{ "listId": "12345", "posts": true, "following": true }]
+}
+```
+
+`collection.followTimelineLimit` 默认是 `0`。设为正整数后，每轮最多补拉这么多个新增关注目标的一页时间线。时间线会增加 API 费用。`collection.maxAccounts` 限制监控规模，配置从小名单开始。
+
+从 `0.2.0` 升级时，将旧 `x` 块换成模板里的 `collection`，加上 `lists`，并更新 `.env`。原数据库可保留，同一账号数字 ID 对应的游标和去重记录会继续使用。
 
 ## 自定义「什么算合格 ALPHA」
 
@@ -58,7 +79,7 @@ npm run decisions # 查看最近 10 条本地判定与证据；不要作为公�
 | `requireOfficialEvidence` | 是否必须引用至少一条被你标为官方的证据 |
 | `minConfidence` | 最低模型评分，范围 `0` 至 `1`；不是事实真伪保证 |
 
-例如，让推文至少引用两条证据、来自两个不同账号：把 `post.minEvidence` 和 `post.minIndependentSources` 都改成 `2`。普通单条帖子往往只有一个来源，会被标为待核实。当前版本可使用 X 附带的被引用或被回复帖子作为原始证据；一条帖子里的多个外链不会凭空变成多个来源，也不会被自动访问。两个账号不等同于事实已独立证实；请按自己的核查标准使用。新增关注不等于背书，示例规则把关注推送关闭。
+例如，让推文至少引用两条证据、来自两个不同账号：把 `post.minEvidence` 和 `post.minIndependentSources` 都改成 `2`。普通单条帖子往往只有一个来源，会被标为待核实。当前版本可使用 SocialData 返回的被引用帖子作为原始证据；一条帖子里的多个外链不会凭空变成多个来源，也不会被自动访问。两个账号不等同于事实已独立证实；请按自己的核查标准使用。新增关注不等于背书，示例规则把关注推送关闭。
 
 模型只能引用这次事件已经提供的证据，不能自行添加 ID 或标成官方。只有模型判合格、已引用证据满足硬门槛，才可能出队；相同项目和事实键入队一次。事实键由模型生成，不保证识别所有语义改写。
 
@@ -71,8 +92,8 @@ npm run decisions # 查看最近 10 条本地判定与证据；不要作为公�
 ## 运行与数据边界
 
 - 数据库默认在 `data/alpha.sqlite`，保存采集游标、事件、判定和发件箱。不要上传 `.env`、`config/local/`、`data/` 或数据库备份。公开仓库里只有空白模板与合成测试数据，不带私人名单、凭证或生产提示词。
-- `partial` 表示收到的分页不完整，本轮不更新对应游标。检查 X API 权限、额度以及 `x.maxPages`。第一次只取帖子首页建立基线，但关注比较需要完整列表；轮询不是实时流，也不能补回超出供应商范围的数据。
-- X 帖子和来源信息会发给你配置的模型，合格情报会发给你配置的群。选择可信的供应商；模型不会收到 X 或 Telegram 凭证。
+- `partial` 表示收到的分页不完整，本轮不更新对应游标。检查供应商权限、额度和各自的 `maxPages`。帖子首次取一页建基线。关注和列表成员需要读到最后一页。轮询无法补回超出供应商范围的数据。
+- X 帖子和来源信息会发给你配置的模型，合格情报会发给你配置的群。选择可信的供应商；模型请求不含采集或 Telegram 凭证。
 - `docs/` 是独立的无钥展示页，使用合成事件。保留了先前公开的只读校验示例，自部署版不会用它覆盖你的准则。
 
 ```bash
